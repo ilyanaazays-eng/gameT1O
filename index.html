@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CYBER BOWLING: HIT THE RIGHT TECH!</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=Kanit:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<style>
+body{font-family:Rajdhani,Inter,sans-serif;background:radial-gradient(circle at 50% 30%,#10205a,#040612 70%);}
+body:before{content:"";position:fixed;inset:0;background-image:linear-gradient(#22d3ee14 1px,transparent 1px),linear-gradient(90deg,#22d3ee14 1px,transparent 1px);background-size:44px 44px}
+.glass{background:rgba(8,18,48,.62);border:1px solid #22d3ee88;backdrop-filter:blur(8px);box-shadow:0 0 16px #22d3ee44,inset 0 0 18px #22d3ee14;border-radius:14px}
+.scan{position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.03) 0 1px,transparent 1px 3px)}
+.btn{padding:.55rem 1.1rem;border:1px solid #22d3ee;border-radius:10px;background:#0b1d3a;color:#a5f3fc;font-family:Kanit;margin:.25rem;box-shadow:0 0 10px #22d3ee55}
+.btn:hover:not(:disabled){background:#155e75}
+.btn[data-p]{background:#0891b2;color:#fff}
+h1,h2,.k{font-family:Kanit}
+td,th{padding:.25rem .6rem;border-bottom:1px solid #22d3ee33;text-align:left}
+@media print{body *{visibility:hidden}#ov,#ov *{visibility:visible}#ov{position:absolute;left:0;top:0;background:#fff!important;color:#000!important}.glass{box-shadow:none;background:#fff}.btn{display:none}}
+</style></head>
+<body class="fixed inset-0 overflow-hidden text-white select-none" id="root">
+<video id="vid" class="absolute inset-0 w-full h-full" style="opacity:.15;transform:scaleX(-1);object-fit:fill" playsinline muted></video>
+<canvas id="cv" class="absolute inset-0 w-full h-full" style="touch-action:none"></canvas>
+<div id="fl" class="absolute inset-0 pointer-events-none opacity-0"></div>
+<div class="scan"></div>
+
+<div class="absolute top-2 left-2 right-2 flex flex-col items-center gap-2 pointer-events-none">
+ <div class="glass px-3 py-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm md:text-lg w-full max-w-5xl k">
+  <span class="flex items-center gap-2 flex-1 min-w-[200px]"><span class="text-2xl">🤖</span><b class="text-cyan-300">NOVA</b><span id="nv" class="text-purple-200 text-xs md:text-base italic" style="font-family:Inter"></span></span>
+  <span>SCORE <b id="sc" class="text-cyan-300">0</b></span><span>LEVEL <b id="lv" class="text-cyan-300">01</b></span>
+  <span>STRIKE <b id="sk" class="text-cyan-300">0</b></span><span>COMBO <b id="cb" class="text-fuchsia-300">x0</b></span><span>⏱ <b id="tm" class="text-cyan-300">00:00</b></span>
+ </div>
+ <div class="glass px-4 py-2 w-full max-w-3xl text-center"><div id="qm" class="text-xs md:text-sm text-cyan-300 tracking-widest k"></div><div id="qt" class="text-base md:text-xl" style="font-family:Inter;font-weight:600"></div></div>
+</div>
+
+<div id="hp" class="glass absolute bottom-2 left-2 p-3 text-xs md:text-sm w-52 md:w-60 k pointer-events-none"></div>
+<div class="glass absolute bottom-2 right-2 p-3 w-52 md:w-60 k pointer-events-none">
+ <div class="text-cyan-300 text-xs tracking-widest">AIM</div>
+ <div class="flex items-center gap-1 text-lg"><span>←</span><div class="relative h-2 bg-cyan-900 rounded flex-1"><div id="ad" class="absolute -top-1 w-4 h-4 rounded-full bg-cyan-300" style="left:50%;transform:translateX(-50%);box-shadow:0 0 10px #22d3ee"></div></div><span>→</span></div>
+ <div class="text-cyan-300 text-xs tracking-widest mt-2">POWER <span id="pl"></span></div>
+ <div class="h-3 bg-cyan-900 rounded overflow-hidden"><div id="pb" class="h-full" style="width:0;background:linear-gradient(90deg,#22d3ee,#a855f7,#f43f5e)"></div></div>
+ <div id="pp" class="text-right text-sm">0%</div>
+</div>
+<div id="bn" class="absolute left-0 right-0 top-[36%] text-center pointer-events-none opacity-0 k" style="transition:opacity .25s"></div>
+<div id="ov" class="hidden absolute inset-0 bg-black/70 flex items-start md:items-center justify-center overflow-auto p-3"></div>
+
+<script>
+const $=id=>document.getElementById(id),cv=$('cv'),cx=cv.getContext('2d'),vid=$('vid');
+let W,H,U;
+function rs(){const d=devicePixelRatio||1;W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;cx.setTransform(d,0,0,d,0,0);U=Math.min(H/760,W/1000)}
+addEventListener('resize',rs);rs();
+const LW=()=>Math.min(W*.42,H*.62),P=(x,z)=>{const s=1-.5*z;return{X:W/2+x*LW()*s,Y:H*.93-z*H*.52,s}};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+/* ---------- DATA ---------- */
+const KB={'Information Technology':['Technology used to manage information','Computers + Networks + Digital tech'],'IT Literacy':['Ability to use technology effectively and responsibly','Use · Evaluate · Stay safe'],'Modem':['Modulates and demodulates signals so data can travel over a network','Modulate + Demodulate'],'LAN':['LAN connects devices within a limited area','School · Office · Building'],'Internet':['Global public network','Worldwide · Public'],'Intranet':['Private network for members of an organisation','Members only'],'Storage Device':['Stores digital data permanently','HDD · SSD · USB · Memory card'],'Bandwidth':['Maximum data transmission capacity in a given time','Mbps / Gbps'],'Satellite':['Orbiting device that relays communication signals through space','Orbit · Relay'],'Uplink':['Signal sent from Earth to a satellite','Earth → Satellite'],'Downlink':['Signal sent from a satellite to Earth','Satellite → Earth'],'Virtual Reality':['Immersive computer-generated environment experienced through a headset','Headset · 3D world']};
+const IT='Information Technology',L='IT Literacy',S='Storage Device',V='Virtual Reality';
+const STG=[
+['Introduction to IT',[[1,'Which term means using computers, networks and digital technologies to manage information?',IT,['Modem',S,'Satellite']],[2,'A clinic stores patient records on computers and shares them securely over a network. Which field is being applied?',IT,['Keyboard','Monitor','Bandwidth']]]],
+['IT Literacy',[[1,'Which term means the ability to use digital technologies effectively and responsibly?',L,['LAN','Bandwidth','Satellite']],[2,'A student safely searches, evaluates and uses online information for homework. Which skill is shown?',L,['Modem','Monitor','Keyboard']]]],
+['Modem',[[1,'Which device modulates and demodulates signals for communication?','Modem',['Router','Monitor','Keyboard']],[3,'Which device converts digital signals to enable communication over a network line?','Modem',['LAN',S,V]]]],
+['LAN',[[1,'What type of network connects computers within a limited geographical area?','LAN',['WAN','Internet','Satellite']],[2,'A school wants to connect computers within one building. Which network should it use?','LAN',['WAN','Internet',V]]]],
+['Internet vs Intranet',[[1,'Which network is normally accessible to the public worldwide?','Internet',['Intranet','LAN','Modem']],[1,'Which network is restricted to members of an organisation?','Intranet',['Internet','WAN','Modem']],[3,'A company wants an internal network that only its employees can access. Which is most appropriate?','Intranet',['Internet','Satellite','WAN']]]],
+['Storage Device',[[1,'Which device is commonly used to store digital files permanently?',S,['Modem','Bandwidth','LAN']],[2,'A photographer needs a portable HDD, SSD or USB drive to carry photos. Which category is this?',S,['Router','Monitor','Satellite']]]],
+['Bandwidth',[[1,'What refers to the maximum amount of data that can be transmitted through a network in a given period?','Bandwidth',['Modem','LAN',S]],[2,'Video calls lag when many users share one connection. Which capacity (Mbps/Gbps) is limited?','Bandwidth',['Keyboard','Monitor',V]]]],
+['Satellite: Uplink & Downlink',[[1,'Which technology transmits communication signals through space using an orbiting device?','Satellite',['Modem','LAN',V]],[2,'Which transmission sends signals from Earth to a satellite?','Uplink',['Downlink','Satellite','Modem']],[2,'Which transmission sends signals from a satellite to Earth?','Downlink',['Uplink','LAN','Modem']]]],
+['Virtual Reality',[[1,'Which technology creates a computer-generated immersive environment experienced through a headset?',V,['LAN','Modem',S]],[3,'A medical school lets students practise surgery in a computer-generated 3D world using a headset. Which technology?',V,['Satellite','Intranet','Bandwidth']]]]
+];
+const SUB={Bandwidth:'Mbps / Gbps'},LVN=['','BASIC','APPLICATION','CHALLENGE'];
+
+/* ---------- AUDIO ---------- */
+let AC;const au=()=>{if(!AC)AC=new(window.AudioContext||window.webkitAudioContext)();if(AC.state=='suspended')AC.resume()};
+function tn(f,d=.15,ty='sine',v=.1,sl=0,dl=0){if(!AC)return;const t=AC.currentTime+dl,o=AC.createOscillator(),g=AC.createGain();o.type=ty;o.frequency.setValueAtTime(f,t);if(sl)o.frequency.exponentialRampToValueAtTime(Math.max(30,f+sl),t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g).connect(AC.destination);o.start(t);o.stop(t+d)}
+function nz(d,v,fq,dl=0){if(!AC)return;const n=AC.sampleRate*d|0,b=AC.createBuffer(1,n,AC.sampleRate),a=b.getChannelData(0);for(let i=0;i<n;i++)a[i]=Math.random()*2-1;const s=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain(),t=AC.currentTime+dl;f.type='bandpass';f.frequency.value=fq;s.buffer=b;g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);s.connect(f).connect(g).connect(AC.destination);s.start(t)}
+const seq=(a,ty,d,v,g)=>a.forEach((f,i)=>tn(f,d,ty,v,0,i*g));
+const SFX={grab:()=>{tn(520,.12,'square',.07,500);tn(1040,.1,'sine',.06,0,.08)},charge:()=>tn(110,.6,'sawtooth',.04,60),swing:()=>tn(200,.3,'sawtooth',.05,900),launch:()=>nz(.5,.18,1400),roll:()=>nz(1.4,.06,180),hit:()=>{tn(900,.2,'square',.08,-600);nz(.25,.14,2600)},ok:()=>seq([523,659,784,1046],'triangle',.18,.1,.08),bad:()=>{tn(160,.35,'sawtooth',.1,-60);tn(150,.35,'square',.07,-60,.2)},strike:()=>seq([392,523,659,784,1046,1318],'square',.25,.07,.07),win:()=>seq([523,659,784,659,784,1046,1318,1568],'triangle',.3,.1,.15)};
+
+/* ---------- ICONS ---------- */
+function icon(n,r,col){cx.save();cx.scale(r,r);cx.lineWidth=.1;cx.strokeStyle=col;cx.fillStyle=col;cx.lineCap=cx.lineJoin='round';
+const rr=(x,y,w,h)=>{cx.beginPath();cx.roundRect(x,y,w,h,.08);cx.stroke()},ln=(a,b,c,d)=>{cx.beginPath();cx.moveTo(a,b);cx.lineTo(c,d);cx.stroke()},ci=(x,y,q,f)=>{cx.beginPath();cx.arc(x,y,q,0,7);f?cx.fill():cx.stroke()},ar=(x,y,q,a,b)=>{cx.beginPath();cx.arc(x,y,q,a,b);cx.stroke()};
+const pc=x=>{rr(x-.22,-.5,.44,.3);ln(x,-.2,0,.45)};
+const sat=(x,y)=>{cx.save();cx.translate(x,y);cx.rotate(-.6);cx.scale(.55,.55);rr(-.2,-.2,.4,.4);rr(-.85,-.15,.55,.3);rr(.3,-.15,.55,.3);ln(0,.2,0,.4);cx.restore()};
+switch(n){
+case IT:rr(-.5,-.5,1,1);rr(-.2,-.2,.4,.4);for(const i of[-1,1]){ln(i*.3,-.5,i*.3,-.8);ln(i*.3,.5,i*.3,.8);ln(-.5,i*.3,-.8,i*.3);ln(.5,i*.3,.8,i*.3)}break;
+case L:cx.beginPath();cx.moveTo(-.8,-.5);cx.lineTo(0,-.85);cx.lineTo(.8,-.5);cx.lineTo(0,-.15);cx.closePath();cx.stroke();ci(0,.2,.22);ar(0,.95,.6,Math.PI,0);break;
+case'Modem':rr(-.8,0,1.6,.55);for(let i=0;i<3;i++)ci(-.5+i*.22,.28,.06,1);ln(-.5,0,-.65,-.7);ln(.5,0,.65,-.7);ln(.5,.55,.5,.8);break;
+case'Router':rr(-.8,.15,1.6,.5);ci(-.5,.4,.06,1);ci(-.3,.4,.06,1);ln(0,.15,0,-.1);ar(0,-.1,.35,Math.PI*1.2,Math.PI*1.8);ar(0,-.1,.65,Math.PI*1.2,Math.PI*1.8);break;
+case'Monitor':rr(-.8,-.6,1.6,1);ln(0,.4,0,.7);ln(-.4,.7,.4,.7);break;
+case'Keyboard':rr(-.9,-.35,1.8,.8);for(let i=0;i<6;i++){ci(-.65+i*.26,-.12,.05,1);ci(-.65+i*.26,.08,.05,1)}ln(-.5,.3,.5,.3);break;
+case'LAN':pc(-.65);pc(0);pc(.65);ln(-.65,-.2,0,.4);ln(0,-.2,0,.4);ln(.65,-.2,0,.4);rr(-.35,.4,.7,.25);break;
+case'WAN':ci(0,0,.5);cx.beginPath();cx.ellipse(0,0,.2,.5,0,0,7);cx.stroke();ln(-.5,0,.5,0);ci(-.75,-.65,.13,1);ci(.75,.65,.13,1);ln(-.68,-.58,-.4,-.3);ln(.68,.58,.4,.3);break;
+case'Internet':ci(0,0,.75);cx.beginPath();cx.ellipse(0,0,.3,.75,0,0,7);cx.stroke();ln(-.75,0,.75,0);ln(-.62,-.38,.62,-.38);ln(-.62,.38,.62,.38);break;
+case'Intranet':rr(-.55,-.05,1.1,.75);ar(0,-.05,.3,Math.PI,0);ci(0,.3,.09,1);ln(-.55,.7,-.8,.7);ln(.55,.7,.8,.7);break;
+case S:rr(-.85,-.6,1.1,.95);ci(-.3,-.12,.3);ci(-.3,-.12,.06,1);ln(0,.2,.15,.2);rr(.5,-.1,.38,.6);rr(.57,-.32,.24,.22);break;
+case'Bandwidth':for(let i=0;i<4;i++)cx.fillRect(-.7+i*.38,.5-(i+1)*.25,.24,(i+1)*.25);ln(-.8,-.65,.8,-.65);ln(.6,-.8,.8,-.65);ln(.6,-.5,.8,-.65);break;
+case'Satellite':cx.save();cx.rotate(-.6);rr(-.2,-.2,.4,.4);rr(-.9,-.14,.55,.28);rr(.35,-.14,.55,.28);ln(0,.2,0,.45);ar(0,.55,.2,0,Math.PI);cx.restore();ar(.1,.1,.5,.2,1.2);ar(.1,.1,.8,.2,1.2);break;
+case V:rr(-.85,-.35,1.7,.7);ci(-.38,0,.22);ci(.38,0,.22);ar(0,.35,.15,0,Math.PI);ln(-.85,-.1,-1,-.1);ln(.85,-.1,1,-.1);break;
+case'Uplink':sat(0,-.55);ln(0,.45,0,-.15);ln(0,-.15,-.2,.05);ln(0,-.15,.2,.05);ar(0,1.3,.85,Math.PI*1.2,Math.PI*1.8);break;
+case'Downlink':sat(0,-.55);ln(0,-.15,0,.45);ln(0,.45,-.2,.25);ln(0,.45,.2,.25);ar(0,1.3,.85,Math.PI*1.2,Math.PI*1.8);break;
+}cx.restore()}
+
+/* ---------- STATE ---------- */
+let mode='mouse',stg=0,qi=0,Q,pins=[],ball={x:0,z:.02,vz:0,vx:0,rot:0,oy:0},state='menu',score=0,strikes=0,combo=0,maxC=0,tm=0,throwsLeft=2,done=[],wrongs=[],corr=0,tot=0,ovOpen=true,gen=0,camOK=false;
+let by=.5,back=false,peak=0,peakT=0,sw=false,pw=0,ps=[];
+const hand={has:false,pinch:false,ax:0,y:.5,lm:null,t:0},ms={down:false,ax:0,y:.5},hy=[];
+const ctl=()=>ms.down?{has:true,pinch:true,ax:ms.ax,y:ms.y}:mode=='hand'?hand:{has:true,pinch:false,ax:ms.ax,y:ms.y};
+function vel(){const n=performance.now();while(hy.length>1&&n-hy[0].t>180)hy.shift();if(hy.length<2)return 0;const a=hy[0],b=hy[hy.length-1],d=(b.t-a.t)/1000;return d>.03?(a.y-b.y)/d:0}
+const say=t=>$('nv').textContent=t;
+function bn(t,s,c='#22d3ee'){const e=$('bn');e.innerHTML=`<div class="text-3xl md:text-5xl font-bold" style="color:${c};text-shadow:0 0 20px ${c}">${t}</div><div class="text-lg md:text-2xl text-white mt-1" style="font-family:Inter;text-shadow:0 0 8px #000">${s||''}</div>`;e.style.opacity=1;clearTimeout(bn.t);bn.t=setTimeout(()=>e.style.opacity=0,2000)}
+const flash=c=>{$('fl').style.background=c;$('fl').animate([{opacity:.5},{opacity:0}],{duration:500})};
+const shake=()=>$('root').animate([{transform:'translate(0)'},{transform:'translate(-8px,4px)'},{transform:'translate(8px,-4px)'},{transform:'translate(0)'}],{duration:350});
+const fmt=t=>String(t/60|0).padStart(2,'0')+':'+String(t%60|0).padStart(2,'0');
+function refresh(){$('sc').textContent=score;$('lv').textContent=String(stg+1).padStart(2,'0');$('sk').textContent=strikes;$('cb').textContent='x'+combo;$('tm').textContent=fmt(tm)}
+
+/* ---------- INPUT ---------- */
+function mv(e){ms.ax=clamp((e.clientX-W/2)/LW(),-1,1);ms.y=e.clientY/H;if(ms.down||mode=='mouse')hy.push({t:performance.now(),y:ms.y})}
+cv.addEventListener('pointerdown',e=>{au();ms.down=true;mv(e)});addEventListener('pointermove',mv);addEventListener('pointerup',()=>ms.down=false);
+addEventListener('keydown',e=>{if(e.key=='Enter'||e.key==' '){const b=$('ov').querySelector('[data-p]');if(b&&!$('ov').classList.contains('hidden')){e.preventDefault();b.click()}}});
+function onHand(r){const l=r.multiHandLandmarks&&r.multiHandLandmarks[0];if(!l){hand.has=false;hand.lm=null;return}
+hand.t=performance.now();hand.has=true;hand.lm=l;const A=l[4],B=l[8],Wr=l[0],M=l[9];
+const d=Math.hypot((A.x-B.x)*640,(A.y-B.y)*480),hp=Math.hypot((Wr.x-M.x)*640,(Wr.y-M.y)*480),th=Math.max(30,hp*.25);
+hand.pinch=hand.pinch?d<th*1.5:d<th;hand.ax=clamp((1-(A.x+B.x)/2-.5)*2.4,-1,1);hand.y=Wr.y;hy.push({t:hand.t,y:Wr.y})}
+async function startHand(){try{if(!window.Hands||!window.Camera)throw 0;const hs=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});hs.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:.6,minTrackingConfidence:.5});hs.onResults(onHand);
+const cam=new Camera(vid,{onFrame:async()=>{await hs.send({image:vid})},width:640,height:480});await cam.start();mode='hand';camOK=true}catch(e){mode='mouse';camOK=false;alert('Camera / MediaPipe unavailable. Switching to Mouse / Touch mode.')}}
+
+/* ---------- GAME FLOW ---------- */
+function setPins(){gen++;const o=[Q.a,...Q.d].sort(()=>Math.random()-.5),n=o.length,xs={3:[-.5,0,.5],4:[-.66,-.22,.22,.66],5:[-.76,-.38,0,.38,.76]}[n]||[-.6,-.2,.2,.6];
+pins=o.map((l,i)=>({l,n:String(i+1).padStart(2,'0'),x:xs[i],z:i%2?.93:.85,fall:0,ang:0,dir:1,sx:0,hit:null,glow:'#818cf8',ver:0}))}
+function loadQ(){const a=STG[stg][1][qi];Q={lv:a[0],q:a[1],a:a[2],d:a[3]};throwsLeft=2;setPins();ball={x:0,z:.02,vz:0,vx:0,rot:0,oy:0};state='ready';
+$('qm').textContent=`STAGE 0${stg+1} · ${STG[stg][0].toUpperCase()} · Q${qi+1}/${STG[stg][1].length} · LEVEL ${Q.lv} ${LVN[Q.lv]}`;$('qt').textContent=Q.q;say('Identify the correct answer, then bowl it!');refresh()}
+function go(i){stg=i;qi=0;cl();loadQ()}
+function nextQ(){cl();qi++;if(qi>=STG[stg][1].length){done[stg]=true;if(done.filter(Boolean).length==9)final();else{SFX.ok();menu(`✓ STAGE 0${stg+1} CLEAR`)}}else loadQ()}
+function launch(){const now=performance.now();pw=back&&now-peakT<1200?Math.min(1,peak/2.2):.1;ball.vz=.55+1.3*pw;ball.vx=0;ball.oy=0;state='roll';throwsLeft--;SFX.launch();setTimeout(SFX.roll,250);say(pw<.34?'Low power. Swing faster!':pw<.67?'Good shot!':'Powerful throw!')}
+function hitPin(p,k){p.fall=1;p.hit=k;p.dir=k=='direct'?(p.x>=ball.x?1:-1):(Math.random()<.5?-1:1);SFX.hit();for(let i=0;i<14;i++){const q=P(p.x,p.z);ps.push({x:q.X,y:q.Y-40*q.s*U,vx:(Math.random()-.5)*300,vy:-Math.random()*250,l:.7,c:'#22d3ee'})}
+if(k=='direct')pins.forEach(q=>{if(!q.fall&&Math.abs(q.x-p.x)<.45&&Math.abs(q.z-p.z)<.12&&Math.random()<.5){const g=gen;setTimeout(()=>{if(g==gen&&!q.fall)hitPin(q,'chain')},150)}})}
+function judge(){state='judge';const d=pins.filter(p=>p.hit=='direct'),ok=d.some(p=>p.l==Q.a),bad=d.some(p=>p.l!=Q.a),first=throwsLeft==1,K=KB[Q.a],g=gen;
+if(ok&&!bad){tot++;corr++;combo++;maxC=Math.max(maxC,combo);let pts=150*combo,sub=`+${pts} POINTS`+(combo>1?` · COMBO x${combo}`:'');pins.forEach(p=>{if(p.l==Q.a){p.glow='#22fff0';p.ver=1}});
+if(first){pts+=500;strikes++;sub+=' · STRIKE! +500 BONUS';SFX.strike()}else{pts+=250;sub+=' · SPARE! +250 BONUS'}score+=pts;SFX.ok();bn('✓ CORRECT HIT!',sub);flash('#22d3ee');say('Great shot! SYSTEM VERIFIED.');refresh();setTimeout(()=>{if(g==gen)card(false)},1900)}
+else if(!d.length){bn('MISS!','The ball missed all pins. Aim carefully.','#facc15');say('Use a forward bowling motion and aim at a pin.');after(1500,g)}
+else{combo=0;score=Math.max(0,score-50);d.forEach(p=>{if(p.l!=Q.a)p.glow='#ff3b5c'});SFX.bad();flash('#ff0033');shake();bn('✕ WRONG TARGET','-50 POINTS · '+K[0]+'.','#ff3b5c');say('Think again. That pin is not the correct answer.');refresh();after(2800,g)}}
+function after(ms,g){setTimeout(()=>{if(g!=gen)return;if(throwsLeft>0){setPins();ball={x:0,z:.02,vz:0,vx:0,rot:0,oy:0};state='ready'}else{tot++;combo=0;wrongs.push({q:Q.q,a:Q.a});pins.forEach(p=>{if(p.l==Q.a)p.glow='#22fff0'});refresh();card(true)}},ms)}
+function card(fail){const K=KB[Q.a];state='judge';ov(`<div class="glass p-6 max-w-lg w-full text-center"><div class="text-xs tracking-widest text-cyan-300 k">${fail?'CORRECT ANSWER':'KNOWLEDGE CARD'}</div><h2 class="text-4xl font-bold text-cyan-200 my-2">${Q.a.toUpperCase()}</h2><div class="my-3" style="font-family:Inter">${K[0]}.</div><div class="text-xs tracking-widest text-fuchsia-300 k">KEYWORD</div><div class="text-lg text-white">${K[1]}</div>${btn('CONTINUE','nextQ()',1)}</div>`)}
+
+/* ---------- SCREENS ---------- */
+const btn=(t,f,p)=>`<button class="btn" ${p?'data-p':''} onclick="${f}">${t}</button>`;
+function ov(h){$('ov').innerHTML=h;$('ov').classList.remove('hidden');ovOpen=true}
+function cl(){$('ov').classList.add('hidden');ovOpen=false}
+function title(){state='menu';ov(`<div class="glass p-6 max-w-2xl w-full text-center"><h1 class="text-3xl md:text-5xl font-bold text-cyan-300" style="text-shadow:0 0 18px #22d3ee">CYBER BOWLING</h1><div class="text-xl text-fuchsia-300 k">HIT THE RIGHT TECH!</div><div class="text-sm text-cyan-100 my-3">Introduction to Information Technology</div>
+<div class="text-sm md:text-base my-3 text-left" style="font-family:Inter">🤏 <b>PINCH</b> thumb + index to grab the ball<br>↔ Move hand <b>left / right</b> to AIM<br>⬇ Pull hand <b>back (down)</b>, then ⬆ swing <b>forward (up)</b> fast = POWER<br>🖐 <b>Open fingers</b> to RELEASE and hit the correct answer pin</div>
+${btn('🖐 HAND TRACKING MODE (webcam)','startHandMode()',1)}${btn('🖱 MOUSE / TOUCH MODE','au();mode=\'mouse\';menu()')}<div class="text-xs text-cyan-200 mt-2">LEARN IT → AIM IT → BOWL IT → HIT IT → MASTER IT</div></div>`)}
+async function startHandMode(){au();ov('<div class="glass p-6 k text-xl">Starting camera…</div>');await startHand();menu()}
+function menu(m=''){state='menu';ov(`<div class="glass p-5 max-w-2xl w-full text-center"><h2 class="text-2xl text-cyan-300">${m||'STAGE SELECT'}</h2><div class="grid grid-cols-2 md:grid-cols-3 gap-2 my-3">${STG.map((s,i)=>{const o=i==0||done[i-1];return `<button class="btn" ${o?`onclick="go(${i})"`:'disabled style="opacity:.4"'}>STAGE 0${i+1} ${done[i]?'✓':o?'▶':'🔒'}<br><small>${s[0]}</small></button>`}).join('')}</div>${btn('IT KNOWLEDGE VAULT','vault()')}${btn('RESTART','reset()')}</div>`)}
+function reset(){score=strikes=combo=maxC=tm=corr=tot=0;done=[];wrongs=[];refresh();menu()}
+function final(){SFX.win();const st=Math.max(1,Math.round(5*corr/Math.max(1,tot)));ov(`<div class="glass p-6 max-w-lg w-full text-center" style="border-color:#facc15"><h2 class="text-3xl text-cyan-300">CYBER BOWLING COMPLETE</h2><div class="text-6xl my-2">🏆</div><div class="text-2xl text-yellow-300 k">MISSION CLEAR</div><div class="my-3 text-xl k">SCORE <b class="text-cyan-300">${score}</b> · STRIKES <b>${strikes}</b><br>BEST COMBO <b>x${maxC}</b> · TIME <b>${fmt(tm)}</b></div><div class="text-3xl text-yellow-300">${'★'.repeat(st)}${'☆'.repeat(5-st)}</div><div class="text-xl my-2 k text-fuchsia-300">IT TECHNOLOGY MASTER!</div>${btn('IT KNOWLEDGE VAULT','vault()',1)}${btn('PLAY AGAIN','reset()')}${btn('REVIEW WRONG ANSWERS','review()')}</div>`)}
+function vault(){ov(`<div class="glass p-5 max-w-2xl w-full"><h2 class="text-2xl text-cyan-300 text-center">IT KNOWLEDGE VAULT</h2><table class="w-full my-3 text-sm md:text-base" style="font-family:Inter"><tr><th>Topic</th><th>Key Concept</th></tr>${Object.entries(KB).map(([k,v])=>`<tr><td><b>${k}</b></td><td>${v[0].replace(/\.$/,'')}</td></tr>`).join('')}</table><div class="text-center">${btn('PRINT REVISION NOTES','print()')}${btn('PLAY AGAIN','reset()')}${btn('REVIEW WRONG ANSWERS','review()')}${btn('RETURN TO STAGE SELECT','menu()',1)}</div></div>`)}
+function review(){ov(`<div class="glass p-5 max-w-2xl w-full"><h2 class="text-2xl text-cyan-300 text-center">REVIEW WRONG ANSWERS</h2><div class="my-3 space-y-3" style="font-family:Inter">${wrongs.length?wrongs.map(w=>`<div><div>${w.q}</div><div class="text-cyan-300"><b>${w.a}</b> — ${KB[w.a][0]}</div></div>`).join(''):'<div class="text-center">No wrong answers. Perfect!</div>'}</div><div class="text-center">${btn('RETURN TO STAGE SELECT','menu()',1)}</div></div>`)}
+
+/* ---------- UPDATE ---------- */
+function upd(dt){const c=ctl(),now=performance.now();
+if(!ovOpen&&state!='menu')tm+=dt;
+if(mode=='hand'&&!ms.down&&hand.has&&now-hand.t>500){hand.has=false;hand.pinch=false}
+if(state=='ready'){ball.x=c.has?c.ax:0;ball.oy=0;back=false;peak=0;sw=false;if(!ovOpen&&c.has&&c.pinch){state='held';by=c.y;SFX.grab();SFX.charge();say('Ball locked. Aim, then pull back.');flash('#22d3ee33')}}
+else if(state=='held'){ball.x=c.ax;ball.oy=clamp((c.y-by)*.8,0,.16);if(!c.has){state='ready';back=false}
+else{if(c.y-by>.06&&!back){back=true;say('Now swing FORWARD!')}const v=vel();if(back&&v>.3){if(v>peak){peak=v;peakT=now}if(!sw){sw=true;SFX.swing()}}
+pw=back?(now-peakT<900?Math.min(1,peak/2.2):Math.min(1,Math.max(v,0)/2.2)):0;if(!c.pinch)launch()}}
+else if(state=='roll'){ball.vz=Math.max(0,ball.vz-.08*dt);ball.z+=ball.vz*dt;ball.x+=ball.vx*dt;ball.rot+=dt*8;if(Math.abs(ball.x)>1){ball.x=Math.sign(ball.x);ball.vx=0}
+for(const p of pins)if(!p.fall&&Math.abs(ball.x-p.x)<.2&&Math.abs(ball.z-p.z)<.06){hitPin(p,'direct');ball.vz*=.85;ball.vx+=(ball.x-p.x)*1.2}
+const q=P(ball.x,ball.z);ps.push({x:q.X,y:q.Y,vx:(Math.random()-.5)*40,vy:-20,l:.5,c:'#a855f7'});
+if((ball.z>1.12||ball.vz<.03)&&!ball.end){ball.end=1;ball.vz=0;const g=gen;setTimeout(()=>{if(g==gen&&state=='roll')judge()},1200)}}
+if(state!='held'&&state!='roll')pw=0;
+for(const p of pins)if(p.fall){p.ang=Math.min(1.5,p.ang+dt*5);p.sx+=p.dir*dt*50}
+for(const p of ps){p.x+=p.vx*dt;p.y+=p.vy*dt;p.l-=dt}ps=ps.filter(p=>p.l>0)}
+
+/* ---------- DRAW ---------- */
+const poly=(a,f)=>{cx.beginPath();a.forEach((p,i)=>i?cx.lineTo(p.X,p.Y):cx.moveTo(p.X,p.Y));cx.closePath();cx.fillStyle=f;cx.fill()};
+function lane(){const a=P(-1,0),b=P(1,0),c=P(1,1.1),d=P(-1,1.1),g=cx.createLinearGradient(0,d.Y,0,a.Y);g.addColorStop(0,'#0b1a45');g.addColorStop(1,'#15357a');poly([a,b,c,d],g);
+for(const s of[-1,1])poly([P(s,0),P(s*1.14,0),P(s*1.14,1.1),P(s,1.1)],'#050a1f');
+cx.save();cx.strokeStyle='#22d3ee';cx.shadowColor='#22d3ee';cx.shadowBlur=12;cx.lineWidth=2;for(const s of[-1,1]){cx.beginPath();cx.moveTo(P(s,0).X,P(s,0).Y);cx.lineTo(P(s,1.1).X,P(s,1.1).Y);cx.stroke()}
+cx.shadowBlur=0;cx.strokeStyle='#22d3ee30';cx.lineWidth=1;for(let k=-.6;k<=.7;k+=.4){cx.beginPath();cx.moveTo(P(k,0).X,P(k,0).Y);cx.lineTo(P(k,1.1).X,P(k,1.1).Y);cx.stroke()}
+for(let z=.1;z<1.1;z+=.1){cx.beginPath();cx.moveTo(P(-1,z).X,P(-1,z).Y);cx.lineTo(P(1,z).X,P(1,z).Y);cx.stroke()}cx.restore()}
+function pinDraw(p){const q=P(p.x,p.z),k=q.s*U*1.5,w=110*k,h=170*k,col=p.glow;cx.save();cx.translate(q.X+p.sx*k,q.Y);
+cx.fillStyle='#0008';cx.beginPath();cx.ellipse(0,0,w*.45,w*.12,0,0,7);cx.fill();cx.rotate(p.ang*p.dir);cx.shadowColor=col;cx.shadowBlur=p.ver?34:16;
+const g=cx.createLinearGradient(-w/2,0,w/2,0);g.addColorStop(0,col+'22');g.addColorStop(.5,col+'77');g.addColorStop(1,col+'22');cx.fillStyle=g;cx.strokeStyle=col;cx.lineWidth=2;
+cx.beginPath();cx.moveTo(-w*.35,0);cx.lineTo(-w*.5,-h*.55);cx.quadraticCurveTo(-w*.5,-h,0,-h);cx.quadraticCurveTo(w*.5,-h,w*.5,-h*.55);cx.lineTo(w*.35,0);cx.closePath();cx.fill();cx.stroke();cx.shadowBlur=0;
+cx.fillStyle='#fff';cx.textAlign='center';cx.font=`700 ${15*k}px Kanit`;cx.fillText(p.n,0,-h*.86);
+cx.translate(0,-h*.62);icon(p.l,w*.3,'#e0faff');cx.translate(0,h*.62);
+const ws=p.l.split(' '),ls=ws.length>1?[ws[0],ws.slice(1).join(' ')]:[p.l];cx.fillStyle='#fff';cx.font=`700 ${17*k}px Rajdhani`;ls.forEach((t,i)=>cx.fillText(t,0,-h*.3+i*18*k));if(SUB[p.l]){cx.font=`${12*k}px Inter`;cx.fillStyle='#a5f3fc';cx.fillText(SUB[p.l],0,-h*.3+36*k)}
+if(p.ver){cx.rotate(-p.ang*p.dir);cx.fillStyle='#22fff0';cx.font=`700 ${15*k}px Kanit`;cx.fillText('SYSTEM VERIFIED',0,-h-12*k)}cx.restore()}
+function ballDraw(){if(ball.z>1.12)return;const q=P(ball.x,ball.z),r=48*q.s*U,X=q.X,Y=q.Y-r*.7+ball.oy*H,held=state=='held';cx.save();cx.shadowColor='#22d3ee';cx.shadowBlur=held?40:20;
+const g=cx.createRadialGradient(X-r*.3,Y-r*.3,r*.1,X,Y,r);g.addColorStop(0,'#ffffffcc');g.addColorStop(.3,'#22d3ee99');g.addColorStop(1,'#3b2bd433');cx.fillStyle=g;cx.beginPath();cx.arc(X,Y,r,0,7);cx.fill();cx.strokeStyle='#67e8f9';cx.lineWidth=2;cx.stroke();
+cx.fillStyle='#fff';cx.beginPath();cx.arc(X,Y,r*.25,0,7);cx.fill();cx.strokeStyle='#d8b4fe';for(let i=0;i<2;i++){cx.beginPath();cx.ellipse(X,Y,r*1.3,r*.4,ball.rot*(i?-1:1)+i*1.5+performance.now()/700,0,7);cx.stroke()}cx.restore();
+if(held||state=='ready'){cx.fillStyle='#a5f3fc';cx.font='700 16px Kanit';cx.textAlign='center';cx.fillText(held?(back?'BALL CHARGING':'BALL LOCKED'):'PINCH TO GRAB BALL',X,Y-r*1.7)}
+if(held){cx.save();cx.setLineDash([10,8]);cx.strokeStyle='#22d3ee';cx.lineWidth=2;cx.shadowColor='#22d3ee';cx.shadowBlur=8;const e=P(ball.x,1);cx.beginPath();cx.moveTo(X,Y-r);cx.lineTo(e.X,e.Y);cx.stroke();cx.restore();cx.fillStyle='#22d3ee';cx.font='700 14px Kanit';cx.fillText('CYBER TRAJECTORY',P(ball.x,.5).X,P(ball.x,.5).Y)}}
+function handDraw(){if(mode!='hand'||!hand.lm)return;const m=l=>({x:(1-l.x)*W,y:l.y*H}),l=hand.lm;cx.save();cx.strokeStyle='#22d3ee66';cx.lineWidth=2;
+if(window.HAND_CONNECTIONS)HAND_CONNECTIONS.forEach(([a,b])=>{const A=m(l[a]),B=m(l[b]);cx.beginPath();cx.moveTo(A.x,A.y);cx.lineTo(B.x,B.y);cx.stroke()});
+l.forEach(p=>{const q=m(p);cx.fillStyle='#fff9';cx.beginPath();cx.arc(q.x,q.y,3,0,7);cx.fill()});
+const A=m(l[4]),B=m(l[8]),Wr=m(l[0]),pn=hand.pinch;
+if(pn){cx.shadowColor='#22d3ee';cx.shadowBlur=20;cx.strokeStyle='#22fff0';cx.lineWidth=5;cx.setLineDash([12,6]);cx.lineDashOffset=-performance.now()/30;cx.beginPath();cx.moveTo(A.x,A.y);cx.lineTo(B.x,B.y);cx.stroke();cx.setLineDash([]);
+ps.push({x:(A.x+B.x)/2,y:(A.y+B.y)/2,vx:(Math.random()-.5)*120,vy:(Math.random()-.5)*120,l:.4,c:'#22fff0'});cx.fillStyle='#22fff0';cx.font='700 16px Kanit';cx.textAlign='center';cx.fillText('PINCH TO GRAB BALL · GRAB ACTIVE',(A.x+B.x)/2,Math.min(A.y,B.y)-24)}
+[[A,'THUMB','#22fff0'],[B,'INDEX','#22fff0'],[Wr,'WRIST','#f0abfc']].forEach(([p,t,c])=>{cx.shadowBlur=pn?16:0;cx.shadowColor=c;cx.fillStyle=c;cx.beginPath();cx.arc(p.x,p.y,pn?10:7,0,7);cx.fill();cx.shadowBlur=0;cx.font='12px Kanit';cx.fillText(t,p.x+12,p.y-8)});cx.restore()}
+function draw(){cx.clearRect(0,0,W,H);lane();[...pins].sort((a,b)=>b.z-a.z).forEach(pinDraw);ballDraw();for(const p of ps){cx.globalAlpha=Math.max(0,p.l*1.6);cx.fillStyle=p.c;cx.beginPath();cx.arc(p.x,p.y,3,0,7);cx.fill()}cx.globalAlpha=1;handDraw()}
+let fr=0;function panel(){const c=ctl(),pc=Math.round(pw*100),dir=c.ax<-.25?'← LEFT':c.ax>.25?'→ RIGHT':'● CENTRE',st=state=='ready'?'READY TO BOWL':state=='held'?(back?'SWING FORWARD!':'BALL LOCKED'):state=='roll'?'BALL LAUNCH':'—';
+$('hp').innerHTML=`<div class="text-cyan-300 tracking-widest">HAND TRACKING</div><div>${mode=='hand'?(camOK?'<span class="text-green-400">●</span> CAMERA CONNECTED':'● NO CAMERA'):'<span class="text-yellow-300">●</span> MOUSE / TOUCH MODE'}</div>${mode=='hand'&&!hand.has?'<div class="text-yellow-300">Please show your hand to the camera.</div>':`<div>GESTURE: ${c.pinch?'PINCH ✓':'OPEN'}</div><div>POWER: ${'█'.repeat(pc/10|0)}${'░'.repeat(10-(pc/10|0))} ${pc}%</div><div>DIRECTION: ${dir}</div>`}<div>STATUS: <b class="text-cyan-200">${st}</b></div>`;
+$('ad').style.left=(c.ax+1)/2*100+'%';$('pb').style.width=pc+'%';$('pp').textContent=pc+'%';$('pl').textContent=pc?(pc<34?'· LOW POWER':pc<67?'· MEDIUM POWER':'· HIGH POWER'):''}
+let last=performance.now();function loop(n){const dt=Math.min(.05,(n-last)/1000);last=n;upd(dt);draw();if(fr++%6==0){panel();refresh()}requestAnimationFrame(loop)}
+title();requestAnimationFrame(loop);
+</script></body></html>
